@@ -14,15 +14,15 @@ st.set_page_config(page_title="Умная склейка этикеток", page
 st.title("🖨️ Склейка: Этикетки + Лист подбора")
 st.write("Сервис читает лист подбора и после каждой этикетки добавляет страницу с названием товара.")
 
-# --- ЗАГРУЗКА ШРИФТА (Надежный CDN-источник, без блокировок) ---
+# --- ЗАГРУЗКА ШРИФТА (Прямая ссылка Google, 100% надежность) ---
 @st.cache_resource
 def load_font():
-    # Называем файл по-новому, чтобы облако навсегда забыло старые ошибки
-    font_path = "OzonFont_SuperFinal.ttf" 
+    # Называем файл совершенно по-новому, чтобы избежать старых кешей
+    font_path = "Clean_Roboto_Font.ttf" 
     
     if not os.path.exists(font_path):
-        # Специальная ссылка, которая отдает ТОЛЬКО чистый шрифт
-        url = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/roboto/Roboto-Regular.ttf"
+        # Прямая ссылка на чистый файл шрифта (без GitHub)
+        url = "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5WZLCzYlKw.ttf"
         r = requests.get(url)
         with open(font_path, 'wb') as f:
             f.write(r.content)
