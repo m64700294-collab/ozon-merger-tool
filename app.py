@@ -14,23 +14,16 @@ st.set_page_config(page_title="Умная склейка этикеток", page
 st.title("🖨️ Склейка: Этикетки + Лист подбора")
 st.write("Сервис читает лист подбора и после каждой этикетки добавляет страницу с названием товара.")
 
-# --- ЗАГРУЗКА ШРИФТА (Для поддержки русского языка в сгенерированных PDF) ---
+# --- ЗАГРУЗКА ШРИФТА (Берем локальный файл из репозитория) ---
 @st.cache_resource
 def load_font():
-    # Задаем новое имя, чтобы проигнорировать старые битые файлы в папке
-    font_path = "OzonFont_Fix.ttf" 
+    font_path = "Roboto-Regular.ttf" 
     
+    # Проверяем, существует ли файл (на случай ошибки)
     if not os.path.exists(font_path):
-        url = "https://raw.githubusercontent.com/google/fonts/main/ofl/roboto/Roboto-Regular.ttf"
-        # Притворяемся браузером Safari на Mac, чтобы сервер отдал нам реальный файл
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Safari/605.1.15'
-        }
-        r = requests.get(url, headers=headers)
+        st.error(f"Файл шрифта {font_path} не найден! Убедитесь, что он загружен на GitHub.")
+        st.stop()
         
-        with open(font_path, 'wb') as f:
-            f.write(r.content)
-            
     pdfmetrics.registerFont(TTFont('OzonFont', font_path))
     return 'OzonFont'
 
