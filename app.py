@@ -14,16 +14,19 @@ st.set_page_config(page_title="Умная склейка этикеток", page
 st.title("🖨️ Склейка: Этикетки + Лист подбора")
 st.write("Сервис читает лист подбора и после каждой этикетки добавляет страницу с названием товара.")
 
-# --- ЗАГРУЗКА ШРИФТА (Берем локальный файл из репозитория) ---
+# --- ЗАГРУЗКА ШРИФТА (Надежный CDN-источник, без блокировок) ---
 @st.cache_resource
 def load_font():
-    font_path = "Roboto-Regular.ttf" 
+    # Называем файл по-новому, чтобы облако навсегда забыло старые ошибки
+    font_path = "OzonFont_SuperFinal.ttf" 
     
-    # Проверяем, существует ли файл (на случай ошибки)
     if not os.path.exists(font_path):
-        st.error(f"Файл шрифта {font_path} не найден! Убедитесь, что он загружен на GitHub.")
-        st.stop()
-        
+        # Специальная ссылка, которая отдает ТОЛЬКО чистый шрифт
+        url = "https://cdn.jsdelivr.net/gh/google/fonts@main/ofl/roboto/Roboto-Regular.ttf"
+        r = requests.get(url)
+        with open(font_path, 'wb') as f:
+            f.write(r.content)
+            
     pdfmetrics.registerFont(TTFont('OzonFont', font_path))
     return 'OzonFont'
 
