@@ -14,12 +14,11 @@ st.set_page_config(page_title="Умная склейка этикеток", page
 st.title("🖨️ Склейка: Этикетки + Лист подбора")
 st.write("Сервис читает лист подбора и после каждой этикетки добавляет понятную страницу для склада.")
 
-# --- ЗАГРУЗКА ШРИФТА (Полная версия с кириллицей) ---
+# --- ЗАГРУЗКА ШРИФТА ---
 @st.cache_resource
 def load_font():
     font_path = "Roboto_Full.ttf" 
     if not os.path.exists(font_path):
-        # Надежный источник шрифта с поддержкой русского языка
         url = "https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf"
         r = requests.get(url)
         with open(font_path, 'wb') as f:
@@ -30,9 +29,6 @@ def load_font():
 font_name = load_font()
 
 def parse_assembly_list(pdf_file):
-    """
-    Парсит лист подбора Ozon в новом формате.
-    """
     reader = PdfReader(pdf_file)
     data = {}
     full_text = ""
@@ -40,7 +36,6 @@ def parse_assembly_list(pdf_file):
     for page in reader.pages:
         full_text += page.extract_text() + "\n"
         
-    # Ищем строки начала заказов (Например: "1 66007881-1086-1")
     matches = list(re.finditer(r'^(\d+)\s+(\d{8,15}-\d{4}-\d+)', full_text, re.MULTILINE))
     
     for i in range(len(matches)):
@@ -48,11 +43,7 @@ def parse_assembly_list(pdf_file):
         end = matches[i+1].start() if i + 1 < len(matches) else len(full_text)
         
         order_num = matches[i].group(2)
-        
-        # Склеиваем текст товара в одну строку
         details = full_text[start:end].replace('\n', ' ').strip()
-        
-        # Озон пишет в конце: [Название] [Артикул] [Количество] [4 цифры этикетки]
         detail_match = re.search(r'(.*?)\s+(\S+)\s+(\d+)\s+(\d{4})$', details)
         
         if detail_match:
@@ -67,9 +58,6 @@ def parse_assembly_list(pdf_file):
     return data, full_text
 
 def create_info_label(width, height, order_number, product_info):
-    """
-    Генерирует новую PDF-страницу с крупной и понятной информацией.
-    """
     packet = BytesIO()
     c = canvas.Canvas(packet, pagesize=(width, height))
     
@@ -84,23 +72,19 @@ def create_info_label(width, height, order_number, product_info):
     # 2. Артикул
     y_current = y_start - 25
     c.setFont(font_name, 14)
-    # Если артикул слишком длинный, немного обрезаем его, чтобы не вылез за край
     article = product_info.get('article', '-')
     if len(article) > 22: 
         article = article[:20] + "..."
     c.drawString(x_margin, y_current, f"Арт: {article}")
     
-    # 3. Название товара (Умный перенос строк)
-    y_current -= 20
+    # 3. Название товара (ЖЕЛЕЗОБЕТОННЫЙ ПЕРЕНОС - РУЧНОЙ ПОДСЧЕТ КООРДИНАТ)
+    y_current -= 22 # Отступ от артикула
+    font_size = 10  # Кегль шрифта
+    line_spacing = 14 # Физическое расстояние между строками (10 кегль + 4 пикселя пустоты)
+    c.setFont(font_name, font_size)
+    
     name = product_info.get('name', 'Товар не найден')
-    
-    # Используем специальный объект ReportLab для ровного текста
-    textobject = c.beginText()
-    textobject.setTextOrigin(x_margin, y_current)
-    textobject.setFont(font_name, 10)
-    textobject.setLeading(12) # Жестко задаем отступ между строками, чтобы не слипались
-    
-    max_chars = 33 # Чуть уменьшили количество символов, чтобы точно влезло в этикетку
+    max_chars = 33 
     words = name.split()
     curr_line = ""
     
@@ -108,17 +92,16 @@ def create_info_label(width, height, order_number, product_info):
         if len(curr_line) + len(w) < max_chars:
             curr_line += w + " "
         else:
-            textobject.textLine(curr_line.strip())
+            c.drawString(x_margin, y_current, curr_line.strip())
+            y_current -= line_spacing # Принудительно сдвигаем "перо" вниз на 14 пикселей
             curr_line = w + " "
     if curr_line:
-        textobject.textLine(curr_line.strip())
+        c.drawString(x_margin, y_current, curr_line.strip())
         
-    c.drawText(textobject)
-    
-    # 4. Количество (ОГРОМНЫМИ ЦИФРАМИ ВНИЗУ)
-    c.setFont(font_name, 22)
+    # 4. Количество (ОГРОМНЫМИ ЦИФРАМИ ВНИЗУ БЕЗ "ШТ")
+    c.setFont(font_name, 26)
     qty = product_info.get('qty', '?')
-    c.drawString(x_margin, 30, f"КОЛ-ВО: {qty}")
+    c.drawString(x_margin, 30, f"КОЛ-ВО: {qty}") 
     
     c.save()
     packet.seek(0)
@@ -135,16 +118,12 @@ if labels_file and assembly_file:
     if st.button("🚀 Склеить файлы", type="primary", use_container_width=True):
         
         with st.status("Обработка файлов...", expanded=True) as status:
-            st.write("Анализ листа подбора...")
             assembly_data, debug_text = parse_assembly_list(assembly_file)
             
             if not assembly_data:
                 st.error("Не удалось прочитать лист подбора. Проверьте формат файла.")
                 st.stop()
-            else:
-                st.write(f"✅ Найдено {len(assembly_data)} уникальных товаров.")
                 
-            st.write("Склейка этикеток...")
             reader_labels = PdfReader(labels_file)
             writer = PdfWriter()
             
@@ -156,10 +135,8 @@ if labels_file and assembly_file:
                 page = reader_labels.pages[i]
                 page_text = page.extract_text()
                 
-                # Добавляем саму этикетку Озона
                 writer.add_page(page)
                 
-                # Ищем номер заказа на этикетке (Новый точный формат)
                 page_order_match = re.search(r'(\d{8,15}-\d{4}-\d+)', page_text)
                 
                 width = float(page.mediabox.width)
