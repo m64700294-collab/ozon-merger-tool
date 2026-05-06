@@ -12,12 +12,12 @@ import requests
 st.set_page_config(page_title="Умная склейка этикеток", page_icon="🖨️", layout="wide")
 
 st.title("🖨️ Склейка: Этикетки + Лист подбора")
-st.write("Сервис читает лист подбора и после каждой этикетки добавляет понятную страницу для склада.")
+st.write("Сервис автоматически подбирает размер текста, чтобы всё влезло на этикетку.")
 
 # --- ЗАГРУЗКА ШРИФТА ---
 @st.cache_resource
 def load_font():
-    font_path = "Roboto_Full.ttf" 
+    font_path = "Roboto_Full_Final.ttf" 
     if not os.path.exists(font_path):
         url = "https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf"
         r = requests.get(url)
@@ -32,16 +32,13 @@ def parse_assembly_list(pdf_file):
     reader = PdfReader(pdf_file)
     data = {}
     full_text = ""
-    
     for page in reader.pages:
         full_text += page.extract_text() + "\n"
-        
-    matches = list(re.finditer(r'^(\d+)\s+(\d{8,15}-\d{4}-\d+)', full_text, re.MULTILINE))
     
+    matches = list(re.finditer(r'^(\d+)\s+(\d{8,15}-\d{4}-\d+)', full_text, re.MULTILINE))
     for i in range(len(matches)):
         start = matches[i].end()
         end = matches[i+1].start() if i + 1 < len(matches) else len(full_text)
-        
         order_num = matches[i].group(2)
         details = full_text[start:end].replace('\n', ' ').strip()
         detail_match = re.search(r'(.*?)\s+(\S+)\s+(\d+)\s+(\d{4})$', details)
@@ -54,121 +51,102 @@ def parse_assembly_list(pdf_file):
             }
         else:
             data[order_num] = {"name": details, "article": "-", "qty": "1"}
-            
-    return data, full_text
+    return data
 
 def create_info_label(width, height, order_number, product_info):
     packet = BytesIO()
     c = canvas.Canvas(packet, pagesize=(width, height))
     
-    x_margin = 15
-    y_start = height - 25
+    x_margin = 10
+    # 1. Заголовок (Номер заказа)
+    c.setFont(font_name, 10)
+    c.drawString(x_margin, height - 18, f"Заказ: {order_number}")
+    c.line(x_margin, height - 20, width - x_margin, height - 20)
     
-    # 1. Номер отправления
+    # 2. Артикул (Чуть крупнее)
     c.setFont(font_name, 12)
-    c.drawString(x_margin, y_start, f"Заказ: {order_number}")
-    c.line(x_margin, y_start - 5, width - x_margin, y_start - 5)
-    
-    # 2. Артикул
-    y_current = y_start - 25
-    c.setFont(font_name, 14)
     article = product_info.get('article', '-')
-    if len(article) > 22: 
-        article = article[:20] + "..."
-    c.drawString(x_margin, y_current, f"Арт: {article}")
+    if len(article) > 25: article = article[:22] + "..."
+    c.drawString(x_margin, height - 35, f"Арт: {article}")
     
-    # 3. Название товара (ЖЕЛЕЗОБЕТОННЫЙ ПЕРЕНОС - РУЧНОЙ ПОДСЧЕТ КООРДИНАТ)
-    y_current -= 22 # Отступ от артикула
-    font_size = 10  # Кегль шрифта
-    line_spacing = 14 # Физическое расстояние между строками (10 кегль + 4 пикселя пустоты)
-    c.setFont(font_name, font_size)
-    
+    # 3. Название товара с динамическим сжатием
     name = product_info.get('name', 'Товар не найден')
-    max_chars = 33 
-    words = name.split()
-    curr_line = ""
     
-    for w in words:
-        if len(curr_line) + len(w) < max_chars:
-            curr_line += w + " "
-        else:
-            c.drawString(x_margin, y_current, curr_line.strip())
-            y_current -= line_spacing # Принудительно сдвигаем "перо" вниз на 14 пикселей
-            curr_line = w + " "
-    if curr_line:
-        c.drawString(x_margin, y_current, curr_line.strip())
-        
-    # 4. Количество (ОГРОМНЫМИ ЦИФРАМИ ВНИЗУ БЕЗ "ШТ")
-    c.setFont(font_name, 26)
+    top_limit = height - 52   # Верхняя граница текста
+    bottom_limit = 50        # Нижняя граница (над количеством)
+    available_h = top_limit - bottom_limit
+    
+    current_size = 10
+    line_h = 12
+    
+    def get_lines(txt, chars):
+        words = txt.split()
+        res, cur = [], ""
+        for w in words:
+            if len(cur) + len(w) < chars: cur += w + " "
+            else:
+                res.append(cur.strip())
+                cur = w + " "
+        res.append(cur.strip())
+        return res
+
+    # Подбираем размер, чтобы влезло в высоту
+    lines = get_lines(name, 32)
+    while (len(lines) * line_h) > available_h and current_size > 6:
+        current_size -= 0.5
+        line_h -= 0.6
+        lines = get_lines(name, int(32 * (10/current_size)))
+
+    c.setFont(font_name, current_size)
+    y_text = top_limit
+    for line in lines:
+        if y_text > bottom_limit:
+            c.drawString(x_margin, y_text, line)
+            y_text -= line_h
+            
+    # 4. Количество (Фиксировано в самом низу)
+    c.setFont(font_name, 24)
     qty = product_info.get('qty', '?')
-    c.drawString(x_margin, 30, f"КОЛ-ВО: {qty}") 
+    c.drawString(x_margin, 15, f"КОЛ-ВО: {qty}")
     
     c.save()
     packet.seek(0)
     return PdfReader(packet).pages[0]
 
-# --- ИНТЕРФЕЙС СТРАНИЦЫ ---
+# --- ИНТЕРФЕЙС ---
 col1, col2 = st.columns(2)
 with col1:
-    labels_file = st.file_uploader("1️⃣ Загрузите Ленту наклеек (PDF)", type="pdf")
+    labels_file = st.file_uploader("1️⃣ Этикетки (PDF)", type="pdf")
 with col2:
-    assembly_file = st.file_uploader("2️⃣ Загрузите Лист подбора (PDF)", type="pdf")
+    assembly_file = st.file_uploader("2️⃣ Лист подбора отправлений (PDF)", type="pdf")
 
 if labels_file and assembly_file:
     if st.button("🚀 Склеить файлы", type="primary", use_container_width=True):
-        
-        with st.status("Обработка файлов...", expanded=True) as status:
-            assembly_data, debug_text = parse_assembly_list(assembly_file)
-            
-            if not assembly_data:
-                st.error("Не удалось прочитать лист подбора. Проверьте формат файла.")
-                st.stop()
-                
-            reader_labels = PdfReader(labels_file)
+        with st.status("Склеиваем...") as status:
+            assembly_data = parse_assembly_list(assembly_file)
+            reader = PdfReader(labels_file)
             writer = PdfWriter()
             
-            progress_bar = st.progress(0)
-            num_pages = len(reader_labels.pages)
-            matched_count = 0
-            
-            for i in range(num_pages):
-                page = reader_labels.pages[i]
-                page_text = page.extract_text()
-                
+            for i in range(len(reader.pages)):
+                page = reader.pages[i]
                 writer.add_page(page)
                 
-                page_order_match = re.search(r'(\d{8,15}-\d{4}-\d+)', page_text)
+                text = page.extract_text()
+                order_match = re.search(r'(\d{8,15}-\d{4}-\d+)', text)
                 
-                width = float(page.mediabox.width)
-                height = float(page.mediabox.height)
+                w, h = float(page.mediabox.width), float(page.mediabox.height)
                 
-                if page_order_match:
-                    order_num = page_order_match.group(1)
-                    product_info = assembly_data.get(order_num, {"name": "Не найдено", "article": "-", "qty": "?"})
-                    
-                    if product_info["name"] != "Не найдено":
-                        matched_count += 1
-                        
-                    info_page = create_info_label(width, height, order_num, product_info)
-                    writer.add_page(info_page)
+                if order_match:
+                    order_num = order_match.group(1)
+                    info = assembly_data.get(order_num, {"name": "Не найдено", "article": "-", "qty": "?"})
+                    writer.add_page(create_info_label(w, h, order_num, info))
                 else:
-                    info_page = create_info_label(width, height, "Номер не прочитан", {"name": "-", "article": "-", "qty": "-"})
-                    writer.add_page(info_page)
-                    
-                progress_bar.progress(int(((i + 1) / num_pages) * 100))
-                
-            status.update(label="Готово!", state="complete", expanded=False)
+                    writer.add_page(create_info_label(w, h, "???", {"name": "Номер не найден", "article": "-", "qty": "-"}))
             
-        st.success(f"🎉 Успешно! Найдено совпадений: {matched_count} из {num_pages}.")
-        
+            status.update(label="Готово!", state="complete")
+            
         output = BytesIO()
         writer.write(output)
         output.seek(0)
         
-        st.download_button(
-            label="📥 Скачать готовый PDF для печати",
-            data=output,
-            file_name="Этикетки_с_информацией.pdf",
-            mime="application/pdf",
-            type="primary"
-        )
+        st.download_button("📥 Скачать результат", output, "Ready_Labels.pdf", "application/pdf")
