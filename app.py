@@ -14,12 +14,13 @@ st.set_page_config(page_title="Умная склейка этикеток", page
 st.title("🖨️ Склейка: Этикетки + Лист подбора")
 st.write("Сервис читает лист подбора и после каждой этикетки добавляет понятную страницу для склада.")
 
-# --- ЗАГРУЗКА ШРИФТА ---
+# --- ЗАГРУЗКА ШРИФТА (Полная версия с кириллицей) ---
 @st.cache_resource
 def load_font():
-    font_path = "Clean_Roboto_Font.ttf" 
+    font_path = "Roboto_Full.ttf" 
     if not os.path.exists(font_path):
-        url = "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5WZLCzYlKw.ttf"
+        # Надежный источник шрифта с поддержкой русского языка
+        url = "https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.1.66/fonts/Roboto/Roboto-Regular.ttf"
         r = requests.get(url)
         with open(font_path, 'wb') as f:
             f.write(r.content)
@@ -27,6 +28,64 @@ def load_font():
     return 'OzonFont'
 
 font_name = load_font()
+
+def create_info_label(width, height, order_number, product_info):
+    """
+    Генерирует новую PDF-страницу с крупной и понятной информацией.
+    """
+    packet = BytesIO()
+    c = canvas.Canvas(packet, pagesize=(width, height))
+    
+    x_margin = 15
+    y_start = height - 25
+    
+    # 1. Номер отправления
+    c.setFont(font_name, 12)
+    c.drawString(x_margin, y_start, f"Заказ: {order_number}")
+    c.line(x_margin, y_start - 5, width - x_margin, y_start - 5)
+    
+    # 2. Артикул
+    y_current = y_start - 25
+    c.setFont(font_name, 14)
+    # Если артикул слишком длинный, немного обрезаем его, чтобы не вылез за край
+    article = product_info.get('article', '-')
+    if len(article) > 22: 
+        article = article[:20] + "..."
+    c.drawString(x_margin, y_current, f"Арт: {article}")
+    
+    # 3. Название товара (Умный перенос строк)
+    y_current -= 20
+    name = product_info.get('name', 'Товар не найден')
+    
+    # Используем специальный объект ReportLab для ровного текста
+    textobject = c.beginText()
+    textobject.setTextOrigin(x_margin, y_current)
+    textobject.setFont(font_name, 10)
+    textobject.setLeading(12) # Жестко задаем отступ между строками, чтобы не слипались
+    
+    max_chars = 33 # Чуть уменьшили количество символов, чтобы точно влезло в этикетку
+    words = name.split()
+    curr_line = ""
+    
+    for w in words:
+        if len(curr_line) + len(w) < max_chars:
+            curr_line += w + " "
+        else:
+            textobject.textLine(curr_line.strip())
+            curr_line = w + " "
+    if curr_line:
+        textobject.textLine(curr_line.strip())
+        
+    c.drawText(textobject)
+    
+    # 4. Количество (ОГРОМНЫМИ ЦИФРАМИ ВНИЗУ)
+    c.setFont(font_name, 26)
+    qty = product_info.get('qty', '?')
+    c.drawString(x_margin, 30, f"КОЛ-ВО: {qty} шт")
+    
+    c.save()
+    packet.seek(0)
+    return PdfReader(packet).pages[0]
 
 def parse_assembly_list(pdf_file):
     """
