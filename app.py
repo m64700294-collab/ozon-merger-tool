@@ -116,9 +116,9 @@ def create_info_label(width, height, order_number, product_info):
     c.drawText(textobject)
     
     # 4. Количество (ОГРОМНЫМИ ЦИФРАМИ ВНИЗУ)
-    c.setFont(font_name, 26)
+    c.setFont(font_name, 22)
     qty = product_info.get('qty', '?')
-    c.drawString(x_margin, 30, f"КОЛ-ВО: {qty} шт")
+    c.drawString(x_margin, 30, f": {qty} шт")
     
     c.save()
     packet.seek(0)
